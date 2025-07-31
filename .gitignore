@@ -1,0 +1,103 @@
+# Python environment and cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.env
+*.env
+.venv
+env.bak/
+venv.bak/
+.python-version
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Virtual Environment
+Pipfile.lock
+poetry.lock
+pyproject.toml
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.project
+.pydevproject
+.settings/
+.ipynb_checkpoints/
+
+# Build and Distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Document processing artifacts
+vector_db/
+cache/
+temp_documents/
+*.faiss
+*.pkl
+*.pickle
+
+# NLTK data directory
+nltk_data/
+
+# Log files
+*.log
+logs/
+log/
+
+# Streamlit specific
+.streamlit/secrets.toml
+
+# Models and large files
+*.bin
+*.h5
+*.pt
+*.model
+*.joblib
+*.parquet
+*.pb
+*.onnx
+*.tflite
+
+# Document caches
+.~lock.*
+~$*
+
+# Application specific
+.cache/
+.config/
+.local/
+
+# Documents - commented out to include actual user documents
+# documents/
+
+# Temporary files
+*.bak
+*.tmp
+*.temp
+.*.swp
+.*.swo
