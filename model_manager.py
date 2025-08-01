@@ -1,669 +1,877 @@
 import os
 import logging
-from typing import Dict, Any, Optional, Tuple
-from dotenv import load_dotenv
-from langchain.llms.base import LLM
+from typing import Dict, Any, Tuple, List, Optional, Set, Union
+from functools import lru_cache
+from dataclasses import dataclass
+import re
+from config import config
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging using centralized config
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL),
+    format=config.LOG_FORMAT
+)
 logger = logging.getLogger(__name__)
 
+# Log configuration on startup
+config.log_config(logger)
+
+# ===== CONSTANTS AND CONFIGURATION =====
+@dataclass
+class LLMConstants:
+    """Constants for LLM processing"""
+    MIN_CONTEXT_LENGTH: int = 10
+    MIN_MEANINGFUL_CONTENT_LENGTH: int = 5
+    MIN_CHUNK_LENGTH: int = 50
+    MIN_LINE_LENGTH: int = 15
+    MAX_RELEVANT_SENTENCES: int = 10
+    MAX_SKILLS_PER_CATEGORY: int = 8
+    MIN_RESPONSE_LENGTH: int = 100
+    MAX_SENTENCES_FOR_SHORT_RESPONSE: int = 6
+    MAX_SENTENCES_FOR_LONG_RESPONSE: int = 12
+    MIN_COMMA_COUNT_FOR_LIST: int = 3
+    TECHNICAL_BOOST_SCORE: int = 3
+    EXACT_MATCH_BOOST: int = 2
+    PARTIAL_MATCH_BOOST: int = 1
+
+@dataclass
+class SkillCategories:
+    """Categorized skills for better response organization"""
+    programming: List[str]
+    tools_frameworks: List[str]
+    concepts_methods: List[str]
+    databases: List[str]
+    cloud_platforms: List[str]
+
+class SimpleLLM:
+    """Enhanced fallback LLM with improved text processing and response generation"""
+    
+    def __init__(self, test_mode: bool = False):
+        self.model_name = "Enhanced Text Processor"
+        self.test_mode = test_mode
+        self._stop_words = self._get_stop_words()
+        self._technical_patterns = self._compile_technical_patterns()
+        self._skill_categories = self._initialize_skill_categories()
+        
+        if not test_mode:
+            logger.info(f"Initialized Enhanced SimpleLLM: {self.model_name}")
+    
+    @lru_cache(maxsize=1)
+    def _get_stop_words(self) -> frozenset:
+        """Get stop words (cached for performance)"""
+        return frozenset([
+            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+            'by', 'about', 'what', 'how', 'why', 'when', 'where', 'which', 'who', 'is', 'are',
+            'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+            'would', 'could', 'should', 'may', 'might', 'can', 'tell', 'me', 'please', 'from',
+            'his', 'her', 'their', 'our', 'your', 'my', 'this', 'that', 'these', 'those'
+        ])
+    
+    def _compile_technical_patterns(self) -> Dict[str, re.Pattern]:
+        """Pre-compile regex patterns for technical content detection"""
+        return {
+            'email': re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
+            'url': re.compile(r'https?://(?:[-\w.])+(?:[:\d]+)?(?:/(?:[\w/_.])*)?(?:\?(?:[\w&=%.])*)?(?:#(?:\w*))?'),
+            'version': re.compile(r'\bv?\d+\.\d+(?:\.\d+)?\b'),
+            'technical_terms': re.compile(r'\b(?:API|SDK|REST|JSON|XML|SQL|NoSQL|CI/CD|DevOps|ML|AI|UI/UX)\b', re.IGNORECASE),
+            'programming_languages': re.compile(r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|Go|Rust|Ruby|PHP|Swift|Kotlin|Scala)\b', re.IGNORECASE),
+            'frameworks': re.compile(r'\b(?:React|Angular|Vue|Django|Flask|Spring|Express|Laravel|TensorFlow|PyTorch|Keras)\b', re.IGNORECASE)
+        }
+    
+    def _initialize_skill_categories(self) -> Dict[str, List[str]]:
+        """Initialize skill categorization mappings"""
+        return {
+            'programming_languages': [
+                'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'go', 'rust', 
+                'ruby', 'php', 'swift', 'kotlin', 'scala', 'r', 'matlab', 'sql'
+            ],
+            'web_technologies': [
+                'html', 'css', 'react', 'angular', 'vue', 'node.js', 'express', 'django', 
+                'flask', 'spring', 'laravel', 'bootstrap', 'jquery'
+            ],
+            'databases': [
+                'mysql', 'postgresql', 'mongodb', 'redis', 'elasticsearch', 'cassandra', 
+                'dynamodb', 'oracle', 'sqlite', 'mariadb'
+            ],
+            'cloud_platforms': [
+                'aws', 'azure', 'gcp', 'google cloud', 'heroku', 'digitalocean', 
+                'linode', 'kubernetes', 'docker'
+            ],
+            'data_science': [
+                'pandas', 'numpy', 'scikit-learn', 'tensorflow', 'pytorch', 'keras', 
+                'matplotlib', 'seaborn', 'plotly', 'jupyter'
+            ],
+            'tools_and_frameworks': [
+                'git', 'jenkins', 'docker', 'kubernetes', 'terraform', 'ansible', 
+                'webpack', 'babel', 'eslint', 'prettier'
+            ]
+        }
+
+    def invoke(self, prompt: str) -> str:
+        """Generate intelligent response with enhanced error handling and validation"""
+        # Input validation
+        if not prompt or not isinstance(prompt, str) or not prompt.strip():
+            logger.warning("Empty, invalid, or whitespace-only prompt received")
+            return "Please provide a valid question with context."
+        
+        try:
+            logger.debug(f"Processing prompt of length: {len(prompt)}")
+            
+            # Extract and validate question and context
+            question_part, context_part = self._parse_prompt(prompt)
+            
+            if not self._is_valid_context(context_part):
+                logger.warning(f"Invalid context: length={len(context_part) if context_part else 0}")
+                return self._handle_insufficient_context()
+            
+            # Process and generate enhanced response
+            cleaned_context = self._clean_context(context_part)
+            response = self._generate_intelligent_response(question_part, cleaned_context)
+            
+            logger.info(f"Successfully generated response of length: {len(response)}")
+            return response
+            
+        except ValueError as ve:
+            logger.error(f"Validation error in SimpleLLM.invoke: {str(ve)}")
+            return "There was an issue with the input format. Please check your question and try again."
+        except Exception as e:
+            logger.error(f"Unexpected error in SimpleLLM.invoke: {str(e)}", exc_info=True)
+            return "I encountered an error processing your request. Please try again."
+
+    def _is_valid_context(self, context: str) -> bool:
+        """Enhanced context validation"""
+        if not context:
+            return False
+        
+        context_stripped = context.strip()
+        if len(context_stripped) < LLMConstants.MIN_CONTEXT_LENGTH:
+            return False
+        
+        # Check for meaningful content (not just whitespace or minimal text)
+        meaningful_lines = [line.strip() for line in context_stripped.split('\n') 
+                          if line.strip() and len(line.strip()) > 3]
+        
+        return len(meaningful_lines) > 0
+
+    def _handle_insufficient_context(self) -> str:
+        """Handle cases with insufficient context"""
+        return ("I couldn't find sufficient relevant information in the documents to answer your question. "
+                "Please ensure your documents contain the information you're looking for, or try rephrasing your question.")
+
+    def _parse_prompt(self, prompt: str) -> Tuple[str, str]:
+        """Enhanced prompt parsing with multiple format support"""
+        if not isinstance(prompt, str):
+            raise ValueError("Prompt must be a string")
+        
+        # Handle structured prompts (Question: ... Context: ...)
+        if "Question:" in prompt and "Context:" in prompt:
+            return self._parse_structured_prompt(prompt)
+        
+        # Handle other common formats
+        return self._parse_unstructured_prompt(prompt)
+
+    def _parse_structured_prompt(self, prompt: str) -> Tuple[str, str]:
+        """Parse structured prompt with Question: and Context: format"""
+        lines = prompt.split("\n")
+        question_line = ""
+        context_start_idx = None
+        
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+            if stripped_line.startswith("Question:"):
+                question_line = stripped_line.replace("Question:", "").strip()
+            elif stripped_line.startswith("Context:"):
+                context_start_idx = i + 1
+                break
+        
+        if context_start_idx is not None:
+            context_lines = self._filter_context_lines(lines[context_start_idx:])
+            context_part = "\n".join(context_lines).strip()
+        else:
+            context_part = ""
+            
+        return question_line, context_part
+
+    def _filter_context_lines(self, lines: List[str]) -> List[str]:
+        """Filter out unwanted lines from context"""
+        filtered_lines = []
+        for line in lines:
+            stripped_line = line.strip()
+            # Skip lines that are instructions or empty
+            if (not stripped_line.startswith("Please provide") and 
+                not stripped_line.startswith("Based on the above") and
+                stripped_line):
+                filtered_lines.append(line)
+        return filtered_lines
+
+    def _parse_unstructured_prompt(self, prompt: str) -> Tuple[str, str]:
+        """Parse unstructured prompts"""
+        # Handle "Based on" format
+        if "Based on" in prompt:
+            parts = prompt.split("Based on", 1)
+            return parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+        
+        # Handle "Given the following" format
+        if "Given the following" in prompt:
+            parts = prompt.split("Given the following", 1)
+            return parts[0].strip(), parts[1].strip() if len(parts) > 1 else ""
+        
+        # Default: treat entire prompt as question
+        return prompt.strip(), ""
+
+    def _clean_context(self, context: str) -> str:
+        """Enhanced context cleaning with better prefix removal"""
+        if not context:
+            return ""
+        
+        cleaned_lines = []
+        prefix_patterns = {"doc ", "page ", "section ", "chapter ", "file ", "document "}
+        
+        for line in context.split("\n"):
+            clean_line = line.strip()
+            
+            if not clean_line or len(clean_line) <= LLMConstants.MIN_MEANINGFUL_CONTENT_LENGTH:
+                continue
+            
+            # Enhanced prefix removal
+            clean_line = self._remove_document_prefixes(clean_line, prefix_patterns)
+            
+            # Remove redundant spacing and special characters
+            clean_line = re.sub(r'\s+', ' ', clean_line)
+            clean_line = re.sub(r'^[-•\*\+]\s*', '', clean_line)  # Remove bullet points
+            
+            if clean_line:
+                cleaned_lines.append(clean_line)
+        
+        return "\n".join(cleaned_lines)
+
+    def _remove_document_prefixes(self, line: str, prefix_patterns: Set[str]) -> str:
+        """Enhanced document prefix removal"""
+        if ":" not in line:
+            return line
+        
+        line_lower = line.lower()
+        for pattern in prefix_patterns:
+            if line_lower.startswith(pattern):
+                # More sophisticated pattern matching
+                colon_index = line.find(':')
+                if colon_index != -1:
+                    potential_content = line[colon_index + 1:].strip()
+                    if len(potential_content) > 5:  # Ensure meaningful content remains
+                        return potential_content
+                break
+        
+        return line
+
+    def _generate_intelligent_response(self, question: str, context: str) -> str:
+        """Enhanced response generation with improved accuracy"""
+        try:
+            question_lower = question.lower()
+            
+            # Extract most relevant content
+            relevant_sentences = self._extract_relevant_sentences(question, context)
+            
+            if not relevant_sentences:
+                return self._handle_no_relevant_content()
+            
+            # Enhanced query type detection
+            query_type = self._detect_query_type(question_lower)
+            
+            if query_type == "list":
+                return self._create_narrative_list_response(question, relevant_sentences, context)
+            elif query_type == "comparison":
+                return self._create_comparison_response(question, relevant_sentences)
+            elif query_type == "technical":
+                return self._create_technical_response(question, relevant_sentences)
+            else:
+                return self._create_narrative_response(question, relevant_sentences)
+                
+        except Exception as e:
+            logger.error(f"Error generating response: {str(e)}")
+            return "I encountered an error while generating the response. Please try again."
+
+    def _detect_query_type(self, question_lower: str) -> str:
+        """Enhanced query type detection"""
+        list_keywords = [
+            "skill", "skills", "technology", "technologies", "tool", "tools", 
+            "framework", "frameworks", "library", "libraries", "certification", 
+            "certifications", "expertise", "languages", "experience"
+        ]
+        
+        comparison_keywords = [
+            "compare", "versus", "vs", "difference", "differences", "better", 
+            "best", "advantages", "disadvantages", "pros", "cons"
+        ]
+        
+        technical_keywords = [
+            "algorithm", "implementation", "architecture", "design", "pattern",
+            "formula", "equation", "calculation", "method", "approach"
+        ]
+        
+        if any(keyword in question_lower for keyword in list_keywords):
+            return "list"
+        elif any(keyword in question_lower for keyword in comparison_keywords):
+            return "comparison"
+        elif any(keyword in question_lower for keyword in technical_keywords):
+            return "technical"
+        else:
+            return "general"
+
+    def _handle_no_relevant_content(self) -> str:
+        """Enhanced handling when no relevant content is found"""
+        return ("I couldn't find specific information related to your question in the provided documents. "
+                "This could be because:\n"
+                "• The information isn't present in the uploaded documents\n"
+                "• The question might need to be more specific\n"
+                "• Try rephrasing your question with different keywords")
+
+    def _create_narrative_list_response(self, question: str, relevant_sentences: List[str], context: str) -> str:
+        """Enhanced narrative list response with better categorization"""
+        # Extract person/entity name from question
+        person_name = self._extract_entity_name(question)
+        
+        # Extract and categorize skills/items
+        extracted_items = self._extract_and_categorize_items(context)
+        
+        # Generate introduction
+        intro = self._generate_intro_for_list_response(person_name, extracted_items)
+        
+        # Create categorized narrative
+        narrative_parts = [intro]
+        narrative_parts.extend(self._build_skill_narratives(extracted_items))
+        
+        # Join and clean up the response
+        full_narrative = self._finalize_narrative(narrative_parts)
+        
+        return f"**Skills and Technical Expertise:**\n\n{full_narrative}\n\n*Source: Retrieved from uploaded documents*"
+
+    def _extract_entity_name(self, question: str) -> str:
+        """Extract person or entity name from question"""
+        question_words = question.split()
+        exclude_words = {
+            'tell', 'me', 'about', 'what', 'are', 'the', 'skills', 'of', 'from', 
+            'his', 'her', 'cv', 'resume', 'experience', 'expertise', 'has', 'does'
+        }
+        
+        name_parts = []
+        for word in question_words:
+            clean_word = re.sub(r'[^\w]', '', word)
+            if (clean_word and len(clean_word) > 2 and 
+                clean_word[0].isupper() and 
+                clean_word.lower() not in exclude_words):
+                name_parts.append(clean_word)
+        
+        return " ".join(name_parts[:2])  # Limit to first two name parts
+
+    def _extract_and_categorize_items(self, context: str) -> SkillCategories:
+        """Enhanced item extraction with categorization"""
+        all_items = self._extract_list_items(context, ["skill", "skills", "technology", "technologies", "tool", "tools"])
+        
+        programming = []
+        tools_frameworks = []
+        concepts_methods = []
+        databases = []
+        cloud_platforms = []
+        
+        skill_categories = self._skill_categories
+        
+        for item in all_items:
+            item_lower = item.lower()
+            categorized = False
+            
+            # Check each category
+            for lang in skill_categories['programming_languages']:
+                if lang in item_lower:
+                    programming.append(item)
+                    categorized = True
+                    break
+            
+            if not categorized:
+                for db in skill_categories['databases']:
+                    if db in item_lower:
+                        databases.append(item)
+                        categorized = True
+                        break
+            
+            if not categorized:
+                for cloud in skill_categories['cloud_platforms']:
+                    if cloud in item_lower:
+                        cloud_platforms.append(item)
+                        categorized = True
+                        break
+            
+            if not categorized:
+                for tool in skill_categories['tools_and_frameworks'] + skill_categories['web_technologies']:
+                    if tool in item_lower:
+                        tools_frameworks.append(item)
+                        categorized = True
+                        break
+            
+            if not categorized:
+                concepts_methods.append(item)
+        
+        return SkillCategories(
+            programming=programming,
+            tools_frameworks=tools_frameworks,
+            concepts_methods=concepts_methods,
+            databases=databases,
+            cloud_platforms=cloud_platforms
+        )
+
+    def _generate_intro_for_list_response(self, person_name: str, skills: SkillCategories) -> str:
+        """Generate appropriate introduction for list responses"""
+        if person_name:
+            return f"Based on the available information, {person_name}'s professional profile demonstrates comprehensive technical expertise across multiple domains."
+        else:
+            total_skills = (len(skills.programming) + len(skills.tools_frameworks) + 
+                          len(skills.concepts_methods) + len(skills.databases) + len(skills.cloud_platforms))
+            if total_skills > 10:
+                return "The document reveals an extensive technical skill set spanning multiple domains and technologies."
+            else:
+                return "The document outlines a focused technical skill set covering key areas of expertise."
+
+    def _build_skill_narratives(self, skills: SkillCategories) -> List[str]:
+        """Build narrative sections for each skill category"""
+        narratives = []
+        
+        if skills.programming:
+            prog_text = f"Programming expertise includes {', '.join(skills.programming[:LLMConstants.MAX_SKILLS_PER_CATEGORY])}"
+            if len(skills.programming) > LLMConstants.MAX_SKILLS_PER_CATEGORY:
+                prog_text += f" and {len(skills.programming) - LLMConstants.MAX_SKILLS_PER_CATEGORY} additional languages"
+            narratives.append(prog_text)
+        
+        if skills.databases:
+            db_text = f"Database technologies encompass {', '.join(skills.databases[:LLMConstants.MAX_SKILLS_PER_CATEGORY])}"
+            narratives.append(db_text)
+        
+        if skills.cloud_platforms:
+            cloud_text = f"Cloud platform experience covers {', '.join(skills.cloud_platforms[:LLMConstants.MAX_SKILLS_PER_CATEGORY])}"
+            narratives.append(cloud_text)
+        
+        if skills.tools_frameworks:
+            tools_text = f"Development tools and frameworks include {', '.join(skills.tools_frameworks[:LLMConstants.MAX_SKILLS_PER_CATEGORY])}"
+            narratives.append(tools_text)
+        
+        if skills.concepts_methods:
+            concepts_text = f"Additional competencies cover {', '.join(skills.concepts_methods[:LLMConstants.MAX_SKILLS_PER_CATEGORY])}"
+            narratives.append(concepts_text)
+        
+        return narratives
+
+    def _finalize_narrative(self, narrative_parts: List[str]) -> str:
+        """Clean up and finalize the narrative response"""
+        if not narrative_parts:
+            return "No specific technical skills were identified in the documents."
+        
+        # Join with proper punctuation
+        full_narrative = ". ".join(narrative_parts) + "."
+        
+        # Clean up formatting
+        full_narrative = re.sub(r'\s+', ' ', full_narrative)
+        full_narrative = re.sub(r'([.!?])\s*([.!?])', r'\1', full_narrative)
+        full_narrative = re.sub(r'\.{2,}', '.', full_narrative)
+        
+        return full_narrative
+
+    def _create_comparison_response(self, question: str, relevant_sentences: List[str]) -> str:
+        """Create response for comparison queries"""
+        paragraph = " ".join(relevant_sentences[:8])
+        paragraph = re.sub(r'\s+', ' ', paragraph).strip()
+        
+        return f"**Comparison Analysis:**\n\n{paragraph}\n\n*Source: Retrieved from uploaded documents*"
+
+    def _create_technical_response(self, question: str, relevant_sentences: List[str]) -> str:
+        """Create response for technical queries"""
+        # Prioritize sentences with technical content
+        technical_sentences = []
+        general_sentences = []
+        
+        for sentence in relevant_sentences:
+            if any(pattern.search(sentence) for pattern in self._technical_patterns.values()):
+                technical_sentences.append(sentence)
+            else:
+                general_sentences.append(sentence)
+        
+        # Combine technical first, then general
+        combined_sentences = technical_sentences + general_sentences
+        paragraph = " ".join(combined_sentences[:8])
+        paragraph = re.sub(r'\s+', ' ', paragraph).strip()
+        
+        return f"**Technical Information:**\n\n{paragraph}\n\n*Source: Retrieved from uploaded documents*"
+
+    def _create_narrative_response(self, question: str, relevant_sentences: List[str]) -> str:
+        """Enhanced narrative response for general queries"""
+        # Select optimal number of sentences based on content length
+        optimal_sentences = LLMConstants.MAX_SENTENCES_FOR_SHORT_RESPONSE
+        if sum(len(s) for s in relevant_sentences[:6]) < LLMConstants.MIN_RESPONSE_LENGTH:
+            optimal_sentences = LLMConstants.MAX_SENTENCES_FOR_LONG_RESPONSE
+        
+        paragraph = " ".join(relevant_sentences[:optimal_sentences])
+        paragraph = re.sub(r'\s+', ' ', paragraph).strip()
+        
+        # Remove duplicate punctuation and clean up
+        paragraph = re.sub(r'([.!?])\s*([.!?])', r'\1', paragraph)
+        
+        return f"**Answer:**\n\n{paragraph}\n\n*Source: Retrieved from uploaded documents*"
+
+    @lru_cache(maxsize=256)
+    def _extract_keywords(self, question: str) -> frozenset:
+        """Extract keywords from question (cached for performance)"""
+        question_words = set(re.findall(r"\w+", question.lower()))
+        return frozenset(question_words - self._stop_words)
+
+    def _extract_relevant_sentences(self, question: str, context: str) -> List[str]:
+        """Enhanced sentence extraction with improved scoring"""
+        question_keywords = self._extract_keywords(question)
+        
+        if not question_keywords:
+            return []
+        
+        # Create chunks for better context preservation
+        chunks = self._create_context_chunks(context)
+        
+        # Score and rank chunks
+        scored_chunks = []
+        for chunk in chunks:
+            score = self._calculate_relevance_score(chunk, question_keywords, question)
+            if score > 0:
+                scored_chunks.append((chunk, score))
+        
+        # Sort by score and return top chunks
+        scored_chunks.sort(key=lambda x: x[1], reverse=True)
+        return [chunk for chunk, score in scored_chunks[:LLMConstants.MAX_RELEVANT_SENTENCES]]
+
+    def _create_context_chunks(self, context: str) -> List[str]:
+        """Create meaningful chunks from context"""
+        chunks = []
+        lines = context.split('\n')
+        current_chunk = ""
+        
+        for line in lines:
+            line = line.strip()
+            if len(line) > 5:
+                current_chunk += " " + line
+                
+                # Create chunk when it's substantial or at sentence end
+                if (len(current_chunk) > LLMConstants.MIN_CHUNK_LENGTH and 
+                    (line.endswith('.') or line.endswith('!') or line.endswith('?'))):
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+        
+        # Add remaining chunk
+        if current_chunk.strip():
+            chunks.append(current_chunk.strip())
+        
+        # Also include individual substantial lines
+        for line in lines:
+            line = line.strip()
+            if len(line) > LLMConstants.MIN_LINE_LENGTH:
+                chunks.append(line)
+        
+        return list(set(chunks))  # Remove duplicates
+
+    def _calculate_relevance_score(self, chunk: str, question_keywords: frozenset, question: str) -> float:
+        """Enhanced relevance scoring with multiple factors"""
+        chunk_words = set(re.findall(r"\w+", chunk.lower()))
+        
+        # Basic keyword overlap
+        overlap = len(question_keywords.intersection(chunk_words))
+        base_score = overlap
+        
+        # Boost for exact phrase matches
+        phrase_boost = 0
+        for keyword in question_keywords:
+            if keyword in chunk.lower():
+                phrase_boost += LLMConstants.EXACT_MATCH_BOOST
+        
+        # Boost for technical content
+        technical_boost = 0
+        for pattern in self._technical_patterns.values():
+            if pattern.search(chunk):
+                technical_boost += LLMConstants.TECHNICAL_BOOST_SCORE
+                break
+        
+        # Boost for contextual relevance
+        context_boost = 0
+        if any(keyword in chunk.lower() for keyword in question_keywords):
+            context_boost += LLMConstants.PARTIAL_MATCH_BOOST
+        
+        # Length normalization (prefer substantial content)
+        length_factor = min(len(chunk) / 100, 1.5)
+        
+        total_score = (base_score + phrase_boost + technical_boost + context_boost) * length_factor
+        return total_score
+
+    def _extract_list_items(self, context: str, list_keywords: List[str]) -> List[str]:
+        """Enhanced list item extraction with better pattern matching"""
+        items = set()
+        
+        # Enhanced regex patterns for skill extraction
+        skill_patterns = [
+            r'(?:skills?|technologies|tools|frameworks?|libraries|certifications?|expertise|languages)\s*[:\-]?\s*(.+)',
+            r'(?:proficient|experienced|skilled)\s+(?:in|with)\s*[:\-]?\s*(.+)',
+            r'(?:knowledge|experience)\s+(?:of|in|with)\s*[:\-]?\s*(.+)'
+        ]
+        
+        for line in context.split('\n'):
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            
+            # Check if line contains skill-related keywords
+            line_lower = line_clean.lower()
+            if any(keyword in line_lower for keyword in list_keywords):
+                
+                # Try each pattern
+                for pattern in skill_patterns:
+                    match = re.search(pattern, line_lower)
+                    if match:
+                        candidates = re.split(r'[,;]\s*', match.group(1))
+                        for candidate in candidates:
+                            cleaned_item = self._clean_skill_item(candidate)
+                            if cleaned_item and len(cleaned_item) > 1:
+                                items.add(cleaned_item)
+                        break
+            
+            # Also check for comma-separated lists (even without keywords)
+            elif line_clean.count(',') >= LLMConstants.MIN_COMMA_COUNT_FOR_LIST:
+                candidates = re.split(r'[,;]\s*', line_clean)
+                for candidate in candidates:
+                    cleaned_item = self._clean_skill_item(candidate)
+                    if (cleaned_item and len(cleaned_item) > 2 and 
+                        self._is_likely_skill(cleaned_item)):
+                        items.add(cleaned_item)
+        
+        return sorted(list(items))
+
+    def _clean_skill_item(self, item: str) -> str:
+        """Clean and normalize skill items"""
+        # Remove parenthetical information
+        item = re.sub(r'\([^)]*\)', '', item)
+        
+        # Remove common prefixes and suffixes
+        item = re.sub(r'^(?:and|or|with|using|including)\s+', '', item, flags=re.IGNORECASE)
+        item = re.sub(r'\s+(?:and|or|with|using|including)$', '', item, flags=re.IGNORECASE)
+        
+        # Clean up spacing and punctuation
+        item = re.sub(r'\s+', ' ', item.strip())
+        item = re.sub(r'^[^\w]+|[^\w]+$', '', item)
+        
+        return item
+
+    def _is_likely_skill(self, item: str) -> bool:
+        """Determine if an item is likely a technical skill"""
+        item_lower = item.lower()
+        
+        # Check against known skill categories
+        for category_skills in self._skill_categories.values():
+            if any(skill in item_lower for skill in category_skills):
+                return True
+        
+        # Check for technical patterns
+        technical_indicators = [
+            r'\b\w+\.(js|py|java|cpp|cs|php|rb|go|rs)\b',  # File extensions
+            r'\bv?\d+\.\d+\b',  # Version numbers
+            r'\b[A-Z]{2,}\b',   # Acronyms
+            r'\w+(?:Script|Lang|DB|SQL|API|SDK)\b'  # Technical suffixes
+        ]
+        
+        return any(re.search(pattern, item, re.IGNORECASE) for pattern in technical_indicators)
+
+    def set_test_mode(self, enabled: bool) -> None:
+        """Enable/disable test mode for unit testing"""
+        self.test_mode = enabled
+
+
 class ModelManager:
-    """
-    Class to manage LLM model selection with fallback options
-    """
+    """Enhanced centralized model manager with improved configuration and error handling"""
     
     def __init__(self):
-        """Initialize the model manager"""
-        load_dotenv()
-        self.preferred_model = os.getenv("PREFERRED_MODEL", "gemini")
-        self.force_local = os.getenv("FORCE_LOCAL_MODEL", "false").lower() == "true"
+        """Initialize the model manager with validation and enhanced logging"""
         self.current_model = None
         self.model_info = {}
         
-    def get_model(self, temperature: float = 0.7) -> Tuple[LLM, Dict[str, Any]]:
-        """
-        Get the appropriate LLM model with fallback
+        # Validate configuration
+        self._validate_config()
         
-        Args:
-            temperature: Temperature setting for the model
+        logger.info("Enhanced ModelManager initialized with configuration:")
+        logger.info(f"  Preferred model: {config.PREFERRED_MODEL}")
+        logger.info(f"  Force local: {config.FORCE_LOCAL_MODEL}")
+        logger.info(f"  Local model: {config.LOCAL_MODEL_NAME}")
+        logger.info(f"  Temperature: {config.DEFAULT_TEMPERATURE}")
+        logger.info(f"  Max tokens: {config.MAX_NEW_TOKENS}")
+        
+    def _validate_config(self) -> None:
+        """Validate configuration settings"""
+        validations = [
+            (hasattr(config, 'PREFERRED_MODEL') and config.PREFERRED_MODEL, "PREFERRED_MODEL must be set"),
+            (0.0 <= config.DEFAULT_TEMPERATURE <= 2.0, "DEFAULT_TEMPERATURE must be between 0.0 and 2.0"),
+            (config.MAX_NEW_TOKENS > 0, "MAX_NEW_TOKENS must be positive"),
+            (hasattr(config, 'LOG_LEVEL'), "LOG_LEVEL must be configured")
+        ]
+        
+        for condition, error_message in validations:
+            if not condition:
+                raise ValueError(error_message)
+        
+        logger.info("Configuration validation passed")
+        
+    def get_model(self, temperature: Optional[float] = None) -> Tuple[Any, Dict[str, Any]]:
+        """Get the appropriate LLM model with enhanced fallback logic"""
+        if temperature is None:
+            temperature = config.DEFAULT_TEMPERATURE
             
-        Returns:
-            Tuple of (LLM instance, model info dictionary)
-        """
-        # Log what model we're trying to use
-        logger.info(f"ModelManager: Attempting to load preferred model: {self.preferred_model}")
-        logger.info(f"ModelManager: Force local setting: {self.force_local}")
-        
-        # Check which local model we would use if needed
-        local_model = os.getenv("LOCAL_MODEL_NAME", "No local model specified")
-        logger.info(f"ModelManager: Local model configured in .env: {local_model}")
-        
-        # Try Gemini model first (if not forced to use local)
-        if not self.force_local and ("gemini" in self.preferred_model.lower()):
-            try:
-                from langchain_google_genai import GoogleGenerativeAI
-                
-                # Check if API key is available
-                api_key = os.getenv("GOOGLE_API_KEY")
-                if not api_key:
-                    logger.warning("Google API key not found, falling back to local model")
-                    return self._get_local_model(temperature)
-                
-                # Initialize Gemini model
-                logger.info(f"Initializing Gemini model with preferred setting: {self.preferred_model}")
-                
-                # Determine model name from preferred_model setting
-                model_name = self.preferred_model
-                # Default to gemini-1.5-pro if no specific version is indicated
-                if model_name == "gemini":
-                    model_name = "gemini-1.5-pro"
-                elif not model_name.startswith("gemini-"):
-                    # If user entered something like "gemini-pro" or other non-standard format,
-                    # ensure it's properly prefixed
-                    if "flash" in model_name.lower():
-                        model_name = "gemini-1.5-flash"
-                    elif "pro" in model_name.lower():
-                        model_name = "gemini-1.5-pro"
-                    else:
-                        model_name = "gemini-1.5-pro"  # Default to pro version
-                
-                logger.info(f"Using Gemini model: {model_name}")
-                
-                # Use optimized generation parameters for better responses
-                gemini_model = GoogleGenerativeAI(
-                    model=model_name,
-                    temperature=min(temperature, 0.7),  # Allow for slightly higher temperature
-                    google_api_key=api_key,
-                    top_p=0.95,  # More permissive sampling
-                    top_k=40,  # Limit token selection
-                    max_output_tokens=4096  # Higher output limit for detailed responses
-                )
-                
-                # Test if model works
-                try:
-                    # Quick test to see if the API key works
-                    _ = gemini_model.invoke("Hello")
-                    
-                    # Model works, set as current and return
-                    self.current_model = "gemini"
-                    
-                    # Extract version from model name
-                    if "-" in model_name:
-                        model_parts = model_name.split("-")
-                        if len(model_parts) >= 3:
-                            # For standard format like "gemini-1.5-pro"
-                            version = f"{model_parts[1]} {model_parts[2].capitalize()}"
-                        else:
-                            # For non-standard format, show the full model name
-                            version = model_name.replace("gemini-", "")
-                    else:
-                        version = "1.5 Pro"  # Default
-                    
-                    self.model_info = {
-                        "name": "Google Gemini",
-                        "version": version,
-                        "type": "API",
-                        "temperature": min(temperature, 0.7),  # Report actual temperature used
-                        "max_tokens": 4096,  # Show configured token limit
-                        "handling": "Advanced Context Processing"
-                    }
-                    return gemini_model, self.model_info
-                    
-                except Exception as e:
-                    logger.warning(f"Error initializing Gemini model: {str(e)}")
-                    logger.info("Falling back to local model")
-                    return self._get_local_model(temperature)
-                
-            except ImportError:
-                logger.warning("langchain_google_genai not installed, falling back to local model")
-                return self._get_local_model(temperature)
-        else:
-            logger.info("Using local model as preferred or forced")
-            return self._get_local_model(temperature)
-    
-    def _get_local_model(self, temperature: float = 0.7) -> Tuple[LLM, Dict[str, Any]]:
-        """
-        Get a local Hugging Face model
-        
-        Args:
-            temperature: Temperature setting for the model
+        # Validate temperature
+        if not (0.0 <= temperature <= 2.0):
+            logger.warning(f"Invalid temperature {temperature}, using default {config.DEFAULT_TEMPERATURE}")
+            temperature = config.DEFAULT_TEMPERATURE
             
-        Returns:
-            Tuple of (LLM instance, model info dictionary)
-        """
-        try:
-            # Import required modules first to avoid missing dependencies
+        logger.info(f"Loading model with temperature: {temperature}")
+        
+        # Try Gemini model first (if conditions are met)
+        if self._should_use_gemini():
             try:
-                import torch
-                from langchain_community.llms import HuggingFacePipeline
-                from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
-                
-                # First check if there's a model specified in .env
-                env_model_name = os.getenv("LOCAL_MODEL_NAME")
-                
-                # Try to use the model specified in .env first
-                if env_model_name:
-                    logger.info(f"Trying to load model specified in .env: {env_model_name}")
-                    
-                    # Load model from .env setting
-                    try:
-                        return self._load_specified_model(env_model_name, temperature)
-                    except Exception as env_model_error:
-                        logger.warning(f"Error loading model from .env ({env_model_name}): {str(env_model_error)}")
-                        logger.info("Falling back to DistilGPT2")
-                
-                # If no .env model or it failed, try DistilGPT2 as fallback
-            except ImportError as import_err:
-                logger.error(f"Failed to import required modules: {str(import_err)}")
-                logger.info("Falling back to text-only mode due to missing dependencies")
-                raise  # Will be caught by the outer try/except
-                
-            # If we get here, imports succeeded but possibly env model failed
-            # Try DistilGPT2 as fallback
-                
-                logger.info("Trying to load DistilGPT2 model (82M parameters)")
-                
-                # Simple model that should work on CPU
-                model_name = "distilgpt2"
-                
-                # Use our standardized model loading method
-                return self._load_specified_model(model_name, temperature, is_fallback=True)
-                
+                return self._load_gemini_model(temperature)
             except Exception as e:
-                logger.warning(f"Error loading DistilGPT2 model: {str(e)}")
-                # Try another model from .env file
-                try:
-                    # If first attempt failed, try again with another model
-                    if not env_model_name:
-                        alternate_model_name = "facebook/opt-350m"  # Default fallback
-                    else:
-                        alternate_model_name = env_model_name  # Try the .env model again with different settings
-                        
-                    logger.info(f"Trying alternate model: {alternate_model_name}")
-                    return self._load_specified_model(alternate_model_name, temperature, is_fallback=True)
-                    
-                    # Create pipeline with safe settings
-                    alt_pipe = pipeline(
-                        "text-generation",
-                        model=alt_model,
-                        tokenizer=alt_tokenizer,
-                        max_new_tokens=256,
-                        temperature=0.1,
-                        top_p=0.95,
-                        do_sample=True,
-                        truncation=True,
-                    )
-                    
-                    # Create LangChain wrapper with appropriate settings
-                    alt_llm = HuggingFacePipeline(
-                        pipeline=alt_pipe,
-                        model_kwargs={"max_length": None}  # Disable max_length constraint
-                    )
-                    
-                    # Set model info
-                    alt_model_info = {
-                        "name": alternate_model_name.split("/")[-1].upper(),
-                        "version": "Alternative Model",
-                        "type": "Local",
-                        "device": "CPU",
-                        "temperature": 0.1,
-                        "max_new_tokens": 256,
-                        "handling": "Auto-truncation"
-                    }
-                    
-                    self.current_model = "alternate_model"
-                    self.model_info = alt_model_info
-                    
-                    return alt_llm, alt_model_info
-                    
-                except Exception as alt_e:
-                    logger.warning(f"Error loading alternate model: {str(alt_e)}")
-                    # Fall back to text-only mode
-                    raise
-                
-        except Exception as e:
-            logger.warning(f"Using text-only fallback due to: {str(e)}")
+                logger.warning(f"Failed to load Gemini model: {str(e)}")
+        
+        # Fallback to enhanced local processor
+        return self._load_local_processor(temperature)
+    
+    def _should_use_gemini(self) -> bool:
+        """Determine if Gemini model should be used"""
+        return (not config.FORCE_LOCAL_MODEL and 
+                "gemini" in config.PREFERRED_MODEL.lower() and
+                config.GOOGLE_API_KEY and 
+                config.GOOGLE_API_KEY.strip())
+    
+    def _load_gemini_model(self, temperature: float) -> Tuple[Any, Dict[str, Any]]:
+        """Load Gemini model with enhanced error handling"""
+        try:
+            from langchain_google_genai import GoogleGenerativeAI
             
-            from langchain_community.llms import FakeListLLM
+            model_name = config.PREFERRED_MODEL
+            logger.info(f"Loading Gemini model: {model_name}")
             
-            # Create a set of helpful responses focused on document summarization
-            responses = [
-                "After analyzing the retrieved documents, I can summarize the key information as follows: The documents contain relevant details addressing your query with specific facts and information about the topic. Each source provides important context and useful details that help answer your question. For more comprehensive information, please review the full source documents displayed above.",
-                
-                "Based on the retrieved documents, here's a concise summary: The sources contain valuable information directly related to your query, with specific details and context. The key points from these documents address your question, but for the most accurate and complete understanding, I recommend reviewing the complete source documents shown above.",
-                
-                "From my analysis of the retrieved documents, I can provide this summary: The sources contain directly relevant information about your topic, with important details and explanations. While this summary highlights the key aspects, reviewing the full source documents above will give you the most comprehensive understanding of the topic.",
-                
-                "The documents retrieved provide these key insights: The sources contain valuable information specifically addressing your query, with factual details and important context. These documents offer direct answers to aspects of your question. For the complete picture, please refer to the full source documents displayed above.",
-                
-                "After reviewing the retrieved documents, I found these important points: The sources contain specific information relevant to your query, with detailed facts and explanations. These documents provide useful context and address key aspects of your question. For all details, please review the complete sources shown above."
-            ]
+            # Initialize with robust parameters
+            gemini_model = GoogleGenerativeAI(
+                model=model_name,
+                temperature=temperature,
+                google_api_key=config.GOOGLE_API_KEY,
+                max_output_tokens=config.MAX_OUTPUT_TOKENS,
+                top_p=getattr(config, 'TOP_P', 0.9)
+            )
             
-            # Create the FakeListLLM
-            local_llm = FakeListLLM(responses=responses)
+            # Test the model with a simple query
+            test_response = gemini_model.invoke("Hello, please respond with 'OK' if you're working.")
+            logger.info(f"Gemini test successful: {test_response[:50]}...")
             
             # Set model info
-            model_info = {
-                "name": "Document Helper",
-                "version": "Text-Only Mode",
-                "type": "Basic",
-                "device": "CPU (Fallback)", 
-                "temperature": 0.0
+            self.current_model = "gemini"
+            self.model_info = {
+                "name": "Gemini",
+                "version": model_name,
+                "type": "API",
+                "device": "Cloud",
+                "temperature": temperature,
+                "max_tokens": config.MAX_OUTPUT_TOKENS,
+                "config_source": "config.py",
+                "status": "active",
+                "test_response": test_response[:100] if test_response else "No response"
             }
             
-            self.current_model = "text_only"
-            self.model_info = model_info
+            logger.info("Successfully loaded and tested Gemini model")
+            return gemini_model, self.model_info
             
-            return local_llm, model_info
-            
-        except Exception as fallback_error:
-            logger.error(f"Error creating fallback model: {str(fallback_error)}")
-            
-            # Create an absolutely minimal fallback that can't fail
-            from langchain_community.llms.fake import FakeListLLM
-            responses = [
-                "Based on the retrieved documents, I can summarize that these sources contain information directly relevant to your query. For complete information, please review the source documents displayed above.",
-                "The documents provide specific information related to your query. Please review the source documents above for all relevant details.",
-                "These documents contain important details addressing your question. For the complete context, refer to the source documents shown above.",
-                "The retrieved sources include relevant information about your topic. Please see the complete documents above for detailed information."
-            ]
-            final_fallback = FakeListLLM(responses=responses)
-            
-            model_info = {
-                "name": "Emergency Fallback",
-                "version": "Minimal",
-                "type": "Text-Only",
-                "device": "CPU (Emergency)",
-                "temperature": 0.0
-            }
-            
-            self.current_model = "emergency"
-            self.model_info = model_info
-            
-            return final_fallback, model_info
+        except ImportError as e:
+            logger.error(f"Gemini dependencies not available: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini model: {str(e)}")
+            raise
     
-    def _load_specified_model(self, model_name: str, temperature: float = 0.7, is_fallback: bool = False) -> Tuple[LLM, Dict[str, Any]]:
-        """
-        Load a specified model by name
+    def _load_local_processor(self, temperature: float) -> Tuple[SimpleLLM, Dict[str, Any]]:
+        """Load enhanced local text processor"""
+        logger.info("Using enhanced local text processor")
         
-        Args:
-            model_name: Name of the model to load
-            temperature: Temperature setting for the model
-            is_fallback: Whether this is being called as a fallback attempt
-            
-        Returns:
-            Tuple of (LLM instance, model info dictionary)
-        """
-        import torch
-        from langchain_community.llms import HuggingFacePipeline
-        from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+        # Initialize enhanced SimpleLLM
+        simple_llm = SimpleLLM()
         
-        # Load tokenizer and model safely
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        # Add padding token if it doesn't exist
-        if tokenizer.pad_token is None:
-            tokenizer.pad_token = tokenizer.eos_token
-        
-        # Check if we can use int8 quantization for better memory efficiency with larger models
-        use_quantization = False
-        model_size_threshold = 500000000  # ~500MB
-        
-        try:
-            # For larger models, try to use quantization
-            if "opt-1.3b" in model_name.lower() or "gpt-neo" in model_name.lower() or "bloom" in model_name.lower():
-                from transformers import BitsAndBytesConfig
-                import bitsandbytes as bnb
-                
-                # Configure 8-bit quantization
-                quantization_config = BitsAndBytesConfig(
-                    load_in_8bit=True,
-                    llm_int8_threshold=6.0,
-                    llm_int8_has_fp16_weight=False,
-                )
-                
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    quantization_config=quantization_config,
-                    low_cpu_mem_usage=True,
-                    device_map="auto"
-                )
-                logger.info(f"Using 8-bit quantization for {model_name}")
-                use_quantization = True
-            else:
-                # For smaller models, use standard loading
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_name,
-                    torch_dtype=torch.float32,
-                    low_cpu_mem_usage=True
-                )
-        except Exception as quant_error:
-            logger.warning(f"Quantization failed: {str(quant_error)}, using standard loading")
-            # Fall back to standard loading
-            model = AutoModelForCausalLM.from_pretrained(
-                model_name,
-                torch_dtype=torch.float32,
-                low_cpu_mem_usage=True
-            )
-        
-        # Create pipeline with appropriate settings
-        pipe = pipeline(
-            "text-generation",
-            model=model,
-            tokenizer=tokenizer,
-            max_new_tokens=512,  # More tokens for better responses
-            temperature=min(temperature, 0.7),  # Allow for temperature control
-            top_p=0.92,
-            do_sample=True,
-            truncation=True,
-        )
-        
-        # Create LangChain wrapper with appropriate settings
-        llm = HuggingFacePipeline(
-            pipeline=pipe,
-            model_kwargs={"max_length": None}  # Disable max_length constraint
-        )
-        
-        # Extract model display name
-        if "/" in model_name:
-            display_name = model_name.split("/")[-1].upper()
-        else:
-            display_name = model_name.upper()
-        
-        # Set model info
-        model_info = {
-            "name": display_name,
-            "version": "Local Enhanced Model" if not is_fallback else "Fallback Model",
-            "type": "Local",
-            "device": "CPU" if not torch.cuda.is_available() else "GPU",
-            "temperature": min(temperature, 0.7),
-            "max_new_tokens": 512,
-            "handling": "8-bit Quantized" if use_quantization else "Standard",
-            "model_path": model_name
+        self.current_model = "enhanced_local_processor"
+        self.model_info = {
+            "name": "Enhanced Text Processor",
+            "version": "2.0",
+            "type": "Rule-based",
+            "device": "Local",
+            "temperature": temperature,
+            "max_tokens": config.MAX_NEW_TOKENS,
+            "config_source": "config.py",
+            "status": "active",
+            "features": [
+                "Enhanced context parsing",
+                "Improved skill extraction",
+                "Better response categorization",
+                "Technical content detection",
+                "Multi-format prompt support"
+            ]
         }
         
-        self.current_model = model_name.replace("/", "_").lower()
-        self.model_info = model_info
-        
-        return llm, model_info
+        logger.info(f"Enhanced local processor loaded: {self.model_info}")
+        return simple_llm, self.model_info
     
     def get_current_model_info(self) -> Dict[str, Any]:
-        """
-        Get information about the currently loaded model
+        """Get comprehensive information about the currently loaded model"""
+        if not self.model_info:
+            return {"error": "No model currently loaded"}
         
-        Returns:
-            Dictionary with model information
-        """
-        return self.model_info
+        # Add runtime information
+        runtime_info = self.model_info.copy()
+        runtime_info.update({
+            "load_time": getattr(self, 'load_time', 'Unknown'),
+            "config_validation": "Passed",
+            "available_features": self._get_available_features()
+        })
         
-    def process_long_input(self, llm: LLM, text: str, max_chunk_length: int = 800) -> str:
-        """
-        Process potentially long input text by chunking if necessary
-        
-        Args:
-            llm: The language model to use
-            text: The input text
-            max_chunk_length: Maximum characters per chunk
-            
-        Returns:
-            Generated response
-        """
-        # Check for empty input
-        if not text or len(text.strip()) == 0:
-            logger.warning("Received empty input text")
-            return "I don't have enough information to provide a response."
-            
-        logger.info(f"Processing input text of length {len(text)}")
-        
-        try:
-            # Extract query from the text for better context
-            query_match = None
-            if "USER QUERY:" in text:
-                query_parts = text.split("USER QUERY:")
-                if len(query_parts) > 1:
-                    query_end = query_parts[1].find("\n")
-                    if query_end > 0:
-                        query_match = query_parts[1][:query_end].strip()
-            
-            query = query_match if query_match else "the topic in the documents"
-            
-            # For short inputs, try to process directly first
-            if len(text) <= max_chunk_length:
-                try:
-                    return llm.invoke(text)
-                except Exception as direct_err:
-                    logger.warning(f"Error with direct invocation: {str(direct_err)}")
-                    # If direct invocation fails, continue with chunking
-            
-            # Extract document sources if available
-            sources = []
-            if "DOCUMENT SOURCES:" in text:
-                source_parts = text.split("DOCUMENT SOURCES:")
-                if len(source_parts) > 1:
-                    source_text = source_parts[1]
-                    # Find source sections that start with "--- Source"
-                    import re
-                    source_sections = re.split(r'---\s+Source\s+\d+:', source_text)
-                    if len(source_sections) > 1:
-                        # First element is empty or header text before first source
-                        sources = ["Source " + s.strip() for s in source_sections[1:]]
-            
-            # For longer inputs, use a focused extraction approach
-            logger.info(f"Chunking input into smaller sections for processing")
-            
-            # If we have clear sources, use those instead of arbitrary chunking
-            if sources:
-                logger.info(f"Found {len(sources)} distinct source sections")
-                chunks = sources
-            else:
-                # Otherwise, chunk by character count
-                chunks = []
-                start = 0
-                while start < len(text):
-                    chunks.append(text[start:start + max_chunk_length])
-                    start += max_chunk_length
-                
-                logger.info(f"Input text split into {len(chunks)} chunks of {max_chunk_length} characters each")
-            
-            # Process each chunk more carefully
-            summaries = []
-            for i, chunk in enumerate(chunks):
-                # Skip empty chunks
-                if not chunk.strip():
-                    continue
-                    
-                # Create a simpler, more focused extraction prompt
-                if sources:
-                    # For identified source documents
-                    prompt = f"""
-                    Read this document source carefully and identify the most important facts, details, and information related to: {query}
-                    
-                    SOURCE DOCUMENT {i+1}/{len(chunks)}:
-                    {chunk}
-                    
-                    EXTRACTION INSTRUCTIONS:
-                    - Focus ONLY on concrete facts and specific information
-                    - Include names, dates, technical terms, and specific details
-                    - Extract only factual information, not opinions
-                    - Format your response as a clear, concise summary of key points
-                    """
-                else:
-                    # For arbitrary chunks
-                    prompt = f"""
-                    Read this document section carefully and identify the most important facts, details, and information related to: {query}
-                    
-                    DOCUMENT SECTION {i+1}/{len(chunks)}:
-                    {chunk}
-                    
-                    EXTRACTION INSTRUCTIONS:
-                    - Focus ONLY on concrete facts and specific information
-                    - Include names, dates, technical terms, and specific details
-                    - Extract only factual information, not opinions
-                    - Format your response as a clear, concise summary of key points
-                    """
-                
-                # Multiple attempts with backoff for each chunk
-                max_attempts = 3
-                for attempt in range(max_attempts):
-                    try:
-                        chunk_result = llm.invoke(prompt)
-                        if chunk_result and len(chunk_result.strip()) > 10:
-                            summaries.append(chunk_result)
-                            break
-                        else:
-                            logger.warning(f"Empty or too short result for chunk {i+1}, attempt {attempt+1}")
-                    except Exception as e:
-                        logger.warning(f"Error processing chunk {i+1}, attempt {attempt+1}: {str(e)}")
-                        if attempt == max_attempts - 1:
-                            # On final attempt, extract manually
-                            # Extract some text directly from the chunk
-                            extracted_text = self._extract_key_text(chunk, query)
-                            summaries.append(f"Information from source {i+1}: {extracted_text}")
-            
-            # If we couldn't extract anything useful, provide a direct fallback
-            if not summaries or all(s.startswith("Information from source") for s in summaries):
-                logger.warning("All extraction attempts failed, using direct fallback")
-                return self._generate_direct_fallback(query, chunks)
-            
-            # Final integration phase - try with simplified instructions for better reliability
-            if len(summaries) > 1:
-                integration_prompt = f"""
-                Based on the following information extracted from multiple documents about {query}, create a comprehensive summary:
-                
-                {' '.join(summaries)}
-                
-                Instructions:
-                - Combine the information into a coherent response
-                - Focus on factual details from the documents
-                - Organize the information in a logical structure
-                - If there are conflicting points, acknowledge them
-                """
-                
-                # Try integration with multiple backup strategies
-                try:
-                    result = llm.invoke(integration_prompt)
-                    if result and len(result.strip()) > 50:  # Reasonable answer length
-                        return result
-                except Exception as e1:
-                    logger.warning(f"Primary integration failed: {str(e1)}")
-                
-                # Fallback 1: Try with first 2-3 summaries only
-                try:
-                    short_prompt = f"Provide a concise summary combining these key points about {query}: {' '.join(summaries[:3])}"
-                    result = llm.invoke(short_prompt)
-                    if result and len(result.strip()) > 50:
-                        return result
-                except Exception as e2:
-                    logger.warning(f"Short integration failed: {str(e2)}")
-                
-                # Fallback 2: Return the best summary
-                longest_summary = max(summaries, key=len)
-                if len(longest_summary) > 100:
-                    return longest_summary
-                
-                # Fallback 3: Combined summaries with template
-                return f"""
-                Based on the analyzed documents about {query}, here's what I found:
-                
-                {"".join([f"• {s.strip()}" for s in summaries])}
-                """
-            elif len(summaries) == 1:
-                # Just one summary to return
-                return summaries[0]
-            else:
-                # No successful summaries
-                return self._generate_direct_fallback(query, chunks)
-                
-        except Exception as outer_error:
-            # Absolute last resort fallback
-            logger.error(f"Complete processing failure: {str(outer_error)}")
-            return f"""
-            Based on the documents analyzed, I've extracted some key information related to your query.
-            
-            The documents contain relevant details and facts about the topic. For the most comprehensive
-            understanding, please review the source documents displayed above for complete context.
-            
-            Error note: Some parts of the documents couldn't be processed fully. You may want to try
-            a more specific query or break your question into smaller parts.
-            """
+        return runtime_info
     
-    def _extract_key_text(self, text: str, query: str) -> str:
-        """Extract key sentences from text based on heuristics"""
-        # Simple extraction of potentially relevant sentences
-        sentences = text.split('.')
+    def _get_available_features(self) -> List[str]:
+        """Get list of available features based on current model"""
+        base_features = [
+            "Document processing",
+            "Question answering", 
+            "Context extraction",
+            "Response generation"
+        ]
         
-        # Look for sentences with keywords from the query
-        query_words = set(query.lower().split())
-        relevant_sentences = []
+        if self.current_model == "enhanced_local_processor":
+            base_features.extend([
+                "Enhanced skill extraction",
+                "Technical content detection",
+                "Multi-category response generation",
+                "Improved accuracy algorithms"
+            ])
+        elif self.current_model == "gemini":
+            base_features.extend([
+                "Advanced language understanding",
+                "High-quality response generation",
+                "Cloud-based processing"
+            ])
         
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            # Count query word matches
-            words = set(sentence.lower().split())
-            matches = words.intersection(query_words)
-            
-            if len(matches) > 0 or any(keyword in sentence.lower() for keyword in ['important', 'key', 'main', 'significant']):
-                relevant_sentences.append(sentence)
-        
-        # If we found relevant sentences, return those
-        if relevant_sentences:
-            return '. '.join(relevant_sentences[:3]) + '.'
-        
-        # Otherwise return the first couple of sentences
-        return '. '.join([s for s in sentences[:3] if s.strip()]) + '.'
-    
-    def _generate_direct_fallback(self, query: str, chunks: list) -> str:
-        """Generate a fallback answer when extraction fails"""
-        # Try to identify document topics from chunks
-        all_text = ' '.join(chunks)
-        topics = set()
-        
-        # Look for capitalized phrases and terms that might be topics
-        import re
-        capitalized_terms = re.findall(r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*', all_text)
-        for term in capitalized_terms:
-            if len(term) > 5:  # Avoid short names
-                topics.add(term)
-        
-        # Add technical terms that may appear
-        tech_patterns = ['AI', 'ML', 'API', 'GPU', 'CPU', 'IoT', 'DevOps', 'Cloud', 'Data', 'Analytics', 
-                         'Neural Network', 'Deep Learning', 'Architecture', 'Framework', 'Platform']
-        for pattern in tech_patterns:
-            if pattern in all_text:
-                topics.add(pattern)
-        
-        # Extract any keywords that match the query
-        query_words = set(query.lower().split())
-        important_content = []
-        for chunk in chunks:
-            sentences = chunk.split('.')
-            for sentence in sentences:
-                sentence = sentence.strip()
-                if not sentence:
-                    continue
-                    
-                # Count query word matches
-                words = set(sentence.lower().split())
-                matches = words.intersection(query_words)
-                if len(matches) > 0:
-                    important_content.append(sentence)
-        
-        # Get the most relevant content
-        relevant_content = '. '.join(important_content[:3]) if important_content else ""
-        
-        topic_str = ", ".join(list(topics)[:5]) if topics else "relevant topics"
-        
-        return f"""
-        Based on my analysis of the documents related to {query}, I've found comprehensive information about {topic_str}.
-        
-        {relevant_content}
-        
-        The documents contain detailed technical specifications, implementation approaches, and professional context about these areas.
-        They provide insights into methodologies, frameworks, and practical applications related to your query.
-        
-        For complete details, I recommend reviewing the source documents which contain more specific examples, code references,
-        and technical explanations of these concepts.
-        """
+        return base_features
+
+    def reload_model(self, temperature: Optional[float] = None) -> Tuple[Any, Dict[str, Any]]:
+        """Reload the current model with new parameters"""
+        logger.info("Reloading model with new parameters")
+        self.current_model = None
+        self.model_info = {}
+        return self.get_model(temperature)
+
+    def get_model_status(self) -> Dict[str, Any]:
+        """Get detailed status of the model manager"""
+        return {
+            "current_model": self.current_model,
+            "model_loaded": self.current_model is not None,
+            "config_valid": True,  # Since we validate on init
+            "available_models": ["gemini", "enhanced_local_processor"],
+            "model_info": self.model_info
+        }

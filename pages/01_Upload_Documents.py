@@ -2,69 +2,12 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 import time
-import subprocess
-from datetime import datetime
 
 from document_processor import DocumentProcessor
 from vector_db import VectorDatabaseManager
 
 # Load environment variables
 load_dotenv()
-
-# Git integration helper functions
-def run_git_command(command, cwd=None):
-    """Run a git command and return the result"""
-    try:
-        result = subprocess.run(
-            command, 
-            cwd=cwd, 
-            check=True, 
-            capture_output=True, 
-            text=True,
-            shell=True  # Required for Windows
-        )
-        return True, result.stdout
-    except subprocess.CalledProcessError as e:
-        return False, f"Error: {e.stderr}"
-
-def init_git_repository():
-    """Initialize git repository for document version control"""
-    docs_dir = os.path.join(os.getcwd(), "documents")
-    os.makedirs(docs_dir, exist_ok=True)
-    
-    # Check if .git directory exists
-    git_dir = os.path.join(docs_dir, ".git")
-    if not os.path.exists(git_dir):
-        st.info("Setting up Git version control for documents...")
-        
-        # Initialize repository
-        success, output = run_git_command("git init", cwd=docs_dir)
-        if not success:
-            st.warning(f"Failed to initialize Git repository: {output}")
-            return
-            
-        # Configure Git (no email required for local repo)
-        run_git_command("git config user.name \"Document System\"", cwd=docs_dir)
-        run_git_command("git config user.email \"document.system@example.com\"", cwd=docs_dir)
-        
-        # Create .gitignore in documents folder
-        gitignore_content = """
-        # Temporary files
-        *.tmp
-        .DS_Store
-        Thumbbs.db
-        
-        # Keep all document files
-        # (no ignores for document files as we want to track them)
-        """
-        
-        with open(os.path.join(docs_dir, ".gitignore"), "w") as f:
-            f.write(gitignore_content)
-            
-        # Add and commit
-        run_git_command("git add .gitignore", cwd=docs_dir)
-        run_git_command("git commit -m \"Initial commit: Set up document version control\"", cwd=docs_dir)
-        st.success("Git repository initialized for document version control")
 
 # Page configuration
 st.set_page_config(
@@ -106,14 +49,14 @@ with st.expander("Document Processing Settings", expanded=False):
             "Chunk Size", 
             min_value=100, 
             max_value=2000, 
-            value=int(os.getenv("DEFAULT_CHUNK_SIZE", 1000))
+            value=int(os.getenv("DEFAULT_CHUNK_SIZE", 800))
         )
     with col2:
         chunk_overlap = st.number_input(
             "Chunk Overlap", 
             min_value=0, 
             max_value=500, 
-            value=int(os.getenv("DEFAULT_CHUNK_OVERLAP", 200))
+            value=int(os.getenv("DEFAULT_CHUNK_OVERLAP", 100))
         )
     
     # Document metadata options

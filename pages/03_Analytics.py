@@ -38,47 +38,131 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS with modern styling and proper contrast
 st.markdown("""
 <style>
-    .metric-card {
-        background-color: #f8f9fa;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .metric-value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #3B82F6;
-        margin-bottom: 0.5rem;
-    }
-    .metric-label {
-        font-size: 1rem;
-        color: #6B7280;
-    }
-    .chart-container {
-        background-color: white;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-        margin-bottom: 1.5rem;
-    }
-    .insights-card {
-        background-color: #EFF6FF;
-        border-radius: 0.5rem;
-        padding: 1rem;
-        border-left: 4px solid #3B82F6;
-        margin-bottom: 1rem;
-    }
+/* Import Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* Main app styling */
+.stApp {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #475569 100%);
+    min-height: 100vh;
+}
+
+/* Override Streamlit's default styling */
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-radius: 25px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.15);
+    margin: 1rem;
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #1e293b;
+}
+
+.metric-card {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-radius: 15px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+    text-align: center;
+    margin-bottom: 1.5rem;
+    border: 1px solid rgba(99, 102, 241, 0.1);
+    transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 15px 40px rgba(99, 102, 241, 0.15);
+}
+
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #6366f1;
+    margin-bottom: 0.5rem;
+    font-family: 'Inter', sans-serif;
+}
+
+.metric-label {
+    font-size: 1.1rem;
+    color: #475569;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+}
+
+.chart-container {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-radius: 20px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+    margin-bottom: 2rem;
+    border: 1px solid rgba(99, 102, 241, 0.1);
+}
+
+.insights-card {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+    border-radius: 15px;
+    padding: 2rem;
+    border-left: 4px solid #06b6d4;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 5px 15px rgba(6, 182, 212, 0.1);
+    color: #0c4a6e;
+}
+
+.analytics-header {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+    padding: 3rem 2rem;
+    border-radius: 20px;
+    margin-bottom: 2rem;
+    color: white;
+    text-align: center;
+    box-shadow: 0 15px 40px rgba(99, 102, 241, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.analytics-header h1 {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+    text-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.analytics-header p {
+    font-family: 'Inter', sans-serif;
+    font-size: 1.1rem;
+    opacity: 0.95;
+    font-weight: 400;
+}
+
+/* Ensure proper text contrast */
+.main .block-container * {
+    color: #1e293b;
+}
+
+.main .block-container h1, .main .block-container h2, .main .block-container h3 {
+    color: #1e293b !important;
+    font-family: 'Inter', sans-serif;
+}
+
+/* Fix white text issues */
+.stMarkdown, .stText {
+    color: #1e293b !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# Main title
-st.markdown("<h1 style='color: #1E3A8A;'>Document Analytics</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color: #6B7280; font-size: 1.1rem;'>Discover insights from your document repository and optimize your knowledge base.</p>", unsafe_allow_html=True)
+# Main title with enhanced styling
+st.markdown("""
+<div class="analytics-header">
+    <h1>📊 Advanced Document Analytics</h1>
+    <p>Comprehensive insights, metrics, and intelligence from your document repository with AI-powered analysis</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Add error recovery button
 if st.button("⚠️ Fix NLTK Resources"):

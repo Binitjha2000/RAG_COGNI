@@ -1,103 +1,101 @@
 # Enterprise Document Search
 
-A GenAI-powered solution that enables intelligent search across various documents, including SOPs, design documents, incident reports, policies, and any customer-requested documentation. It focuses on extracting relevant content from within documents to support faster and more accurate information retrieval.
-
-## Technology Stack
-
-- **Gemma**: For sentence transformation embedding
-- **Vector Database**: For storing and querying embeddings
-- **Adaptive LLM Selection**: 
-  - Primary: Google Gemini API 
-  - Fallback: Local Hugging Face models (Mistral-7B or TinyLlama-1.1B)
-- **Streamlit**: Frontend interface
+A simple, powerful AI-powered document search system that enables intelligent search across PDFs, Word documents, and text files. Get precise, human-readable answers from your documents.
 
 ## Features
 
-- Intelligent search across various document types
-- Privacy protection with automatic filtering of sensitive information
-- Document processing for various file formats (PDF, DOCX, TXT, etc.)
-- Relevance-based search results
-- GPU acceleration support with UI toggle
-- Modern, responsive user interface
+- **Simple Document Upload**: Drag and drop PDF, DOCX, TXT files
+- **Intelligent Search**: Ask questions in natural language
+- **AI-Powered Answers**: Get comprehensive, human-readable responses
+- **Local & Cloud Models**: Uses Google Gemini API with local model fallbacks
+- **Fast Vector Search**: FAISS-powered semantic search
+- **Clean Interface**: Simple Streamlit web interface
 
-## Installation
+## Quick Start
 
-1. Clone the repository
-2. Install dependencies:
-   ```
+1. **Install Dependencies**:
+   ```bash
    pip install -r requirements.txt
    ```
-3. Create a `.env` file from the template:
+
+2. **Run the App**:
+   ```bash
+   streamlit run app.py
    ```
-   cp .env.example .env
-   ```
-4. Update the `.env` file with your API keys and configuration
 
-### Model Selection Configuration
+3. **Upload Documents**: Use the upload interface to add your documents
 
-In the `.env` file, you can configure the model selection behavior:
+4. **Ask Questions**: Search using natural language queries like:
+   - "What are John's skills?"
+   - "What experience does Sarah have?"
+   - "What technologies are mentioned?"
 
-```
-# Model Settings
-PREFERRED_MODEL=gemini  # Options: gemini, local
-FORCE_LOCAL_MODEL=false  # Set to true to force using local model even if API key is present
-LOCAL_MODEL_NAME=facebook/opt-350m  # Open source model that doesn't require HF login
-```
+## Configuration
 
-- If `GOOGLE_API_KEY` is missing or invalid, the system will automatically fall back to local models
-- Set `FORCE_LOCAL_MODEL=true` to always use local models regardless of API key
-- You can specify any Hugging Face model as the `LOCAL_MODEL_NAME`
-- The application includes a device selector in the UI to switch between CPU and GPU
+Create a `.env` file for optional settings:
 
-## Usage
+```env
+# Optional: Use Google Gemini API for better responses
+GOOGLE_API_KEY=your_api_key_here
 
-Run the application:
+# Optional: Force local model usage
+FORCE_LOCAL_MODEL=false
 
-```
-streamlit run app.py
+# Optional: Specify local model
+LOCAL_MODEL_NAME=microsoft/DialoGPT-medium
 ```
 
-Or use the provided batch script:
+**Models Available**:
+- **Primary**: Google Gemini API (best quality)
+- **Fallback**: DialoGPT-Large/Medium, OPT-350m, DistilGPT2
 
-```
-run_app.bat
-```
+## How It Works
 
-## Project Structure
+1. **Document Processing**: Splits documents into chunks, creates embeddings
+2. **Vector Search**: Finds relevant document sections using semantic similarity  
+3. **AI Generation**: Uses LLM to create human-readable answers from retrieved content
+4. **Smart Caching**: Stores processed documents for fast subsequent searches
+
+## Files Structure
 
 ```
 enterprise_doc_search/
-│
-├── app.py                   # Main Streamlit application (all-in-one interface)
-├── pages/                   # Additional pages (optional, for multi-page mode)
-│   ├── 01_Upload_Documents.py  # Document upload and processing
-│   ├── 02_Search_Documents.py  # Search interface
-│   ├── 03_Analytics.py         # Analytics dashboard
-│   └── 04_Settings.py          # Settings and admin panel
-├── document_processor.py    # Document processing utilities
-├── vector_db.py             # Vector database management
-├── llm_access_control.py    # LLM with access control
-├── pia_access_control.py    # Personally Identifiable Access control
-├── model_manager.py         # Adaptive model selection with fallback
-├── requirements.txt         # Project dependencies
-├── run_app.bat              # Script to run the application
-└── .env.example             # Environment variables template
+├── app.py                   # Main application
+├── model_manager.py         # AI model management
+├── vector_db.py            # Document storage & search
+├── document_processor.py   # File processing
+├── requirements.txt        # Dependencies
+├── documents/              # Your uploaded documents
+└── cache/                  # Processed document cache
 ```
 
-## Access Control
+## Technical Details
 
-The system implements a role-based access control system with three default roles:
-- **Admin**: Full access to all documents and features
-- **Analyst**: Can access public, internal, and confidential documents, and upload new documents
-- **Viewer**: Can only access public and internal documents
+- **Embeddings**: `sentence-transformers/all-mpnet-base-v2` (768 dimensions)
+- **Vector Store**: FAISS with cosine similarity
+- **Text Splitting**: Recursive character splitter (1000 chars, 200 overlap)
+- **LLM Integration**: LangChain with HuggingFace Transformers
+- **Caching**: Automatic document processing cache
 
-## Vector Database
+## Supported Formats
 
-The solution uses a FAISS vector database for storing document embeddings. The database can be persisted to disk and loaded on startup.
+- PDF documents
+- Word documents (.docx, .doc) 
+- Text files (.txt, .md)
 
-## Document Processing
+## Requirements
 
-The document processor supports multiple file formats:
+- Python 3.8+
+- 4GB+ RAM recommended
+- Optional: GPU for faster local model inference
+
+## Enhanced Features (Previous Updates)
+
+- **Hybrid Search**: Combines semantic and keyword matching
+- **Better Models**: Upgraded from basic models to DialoGPT and OPT series
+- **Improved Prompting**: Advanced templates for human-readable responses
+- **Smart Extraction**: Specialized logic for different query types
+- **Response Formatting**: Clean, structured answers with bullet points and sections
 - PDF files
 - Word documents (DOCX, DOC)
 - Text files (TXT, MD)
